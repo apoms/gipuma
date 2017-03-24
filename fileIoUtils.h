@@ -6,8 +6,11 @@
 
 #include <iostream>
 #include <fstream>
+#include "gipuma.h"
+#include "files.h"
+#include "opencv2/highgui/highgui.hpp"
 
-static void getProjectionMatrix(char* line, Mat_<float> &P){
+static void getProjectionMatrix(char* line, cv::Mat_<float> &P){
     const char* p;
     int idx = 0;
     for (p = strtok( line, " " );  p;  p = strtok( NULL, " " ))
@@ -24,7 +27,7 @@ static void getProjectionMatrix(char* line, Mat_<float> &P){
     }
 }
 
-static int read3Dpoint(char* line, Vec3f &pt){
+static int read3Dpoint(char* line, cv::Vec3f &pt){
     const char* p;
     int idx = 0;
     for (p = strtok( line, " " );  p;  p = strtok( NULL, " " ))
@@ -41,9 +44,9 @@ static int read3Dpoint(char* line, Vec3f &pt){
     return 0;
 }
 
-static void readCalibFileKitti(const string calib_filename, Mat_<float> &P1, Mat_<float> &P2){
-    ifstream myfile;
-    myfile.open(calib_filename.c_str(),ifstream::in);
+static void readCalibFileKitti(const std::string calib_filename, cv::Mat_<float> &P1, cv::Mat_<float> &P2){
+    std::ifstream myfile;
+    myfile.open(calib_filename.c_str(),std::ifstream::in);
     //get first line (containing P0)
     char line[512];
     myfile.getline(line,512);
@@ -53,9 +56,9 @@ static void readCalibFileKitti(const string calib_filename, Mat_<float> &P1, Mat
     myfile.close();
 }
 
-static void readBoundingVolume(const string filename, Vec3f &ptBL, Vec3f & ptTR){
-    ifstream myfile;
-    myfile.open(filename.c_str(),ifstream::in);
+static void readBoundingVolume(const std::string filename, cv::Vec3f &ptBL, cv::Vec3f & ptTR){
+    std::ifstream myfile;
+    myfile.open(filename.c_str(),std::ifstream::in);
     char line[512];
     //bottom left point
     myfile.getline(line,512);
@@ -68,11 +71,11 @@ static void readBoundingVolume(const string filename, Vec3f &ptBL, Vec3f & ptTR)
 }
 
 
-static void readCameraFileStrecha(const string camera_filename, float &focalLength){
+static void readCameraFileStrecha(const std::string camera_filename, float &focalLength){
     // only interested in focal length, but possible to get also other internal and external camera parameters
     // focal length is stored in pixel format as alpha_x and alphy_y, only using alpha_x (which is the very first parameter of the internal camera matrix)
-    ifstream myfile;
-    myfile.open(camera_filename.c_str(),ifstream::in);
+    std::ifstream myfile;
+    myfile.open(camera_filename.c_str(),std::ifstream::in);
     char line[512];
     myfile.getline(line,512);
     const char* p = strtok( line, " " );
@@ -80,9 +83,9 @@ static void readCameraFileStrecha(const string camera_filename, float &focalLeng
     myfile.close();
 }
 
-static void readPFileStrechaPmvs(const string p_filename, Mat_<float> &P){
-    ifstream myfile;
-    myfile.open(p_filename.c_str(),ifstream::in);
+static void readPFileStrechaPmvs(const std::string p_filename, cv::Mat_<float> &P){
+    std::ifstream myfile;
+    myfile.open(p_filename.c_str(),std::ifstream::in);
 
     //cout <<"Opening file " << p_filename << endl;
     for( int i = 0; i < 4; i++){
@@ -108,11 +111,11 @@ static void readPFileStrechaPmvs(const string p_filename, Mat_<float> &P){
     }
     myfile.close();
 }
-static void readKRtFileMiddlebury(const string filename, vector<Camera> cameras, InputFiles inputFiles)
+static void readKRtFileMiddlebury(const std::string filename, std::vector<Camera> cameras, InputFiles inputFiles)
 {
-    ifstream myfile;
-    myfile.open( filename, ifstream::in );
-    string line;
+    std::ifstream myfile;
+    myfile.open( filename, std::ifstream::in );
+    std::string line;
 
     getline (myfile, line); // throw away first line
 
@@ -121,12 +124,12 @@ static void readKRtFileMiddlebury(const string filename, vector<Camera> cameras,
     while( getline( myfile,line) )
     {
         /*cout << "Line is "<< line << endl;*/
-        Mat Rt;
-        Mat_<float> K = Mat::zeros( 3, 3, CV_32F );
-        Mat_<float> R = Mat::zeros( 3, 3, CV_32F );
-        Vec3f vt;
-        stringstream ss(line);
-        string tmp;
+        cv::Mat Rt;
+        cv::Mat_<float> K = cv::Mat::zeros( 3, 3, CV_32F );
+        cv::Mat_<float> R = cv::Mat::zeros( 3, 3, CV_32F );
+        cv::Vec3f vt;
+        std::stringstream ss(line);
+        std::string tmp;
         ss >> tmp
         >> K(0,0) >> K(0,1) >> K(0,2) >> K(1,0) >> K(1,1) >> K(1,2) >> K(2,0) >> K(2,1) >> K(2,2) //
         >> R(0,0) >> R(0,1) >> R(0,2) >> R(1,0) >> R(1,1) >> R(1,2) >> R(2,0) >> R(2,1) >> R(2,2) //
@@ -142,7 +145,7 @@ static void readKRtFileMiddlebury(const string filename, vector<Camera> cameras,
                 break;
             }
         }
-        Mat t(vt, false);
+        cv::Mat t(vt, false);
         /*Mat t(vt);*/
         hconcat(R, t, Rt);
         cameras[truei].P = K*Rt;
@@ -153,7 +156,7 @@ static void readKRtFileMiddlebury(const string filename, vector<Camera> cameras,
     }
 
 
-    /*while (os >> temp)                //the stringstream makes temp a token*/
+    /*while (os >> temp)                //the std::stringstream makes temp a token*/
         /*std::cout <<temp <<std::endl;   //and deletes that token from itself*/
     //the token can now be
     //outputted to console, or put into an array,
@@ -161,9 +164,9 @@ static void readKRtFileMiddlebury(const string filename, vector<Camera> cameras,
     return;
 }
 
-static void readCalibFileDaisy(const string calib_filename, Mat_<float> &P){
-    ifstream myfile;
-    myfile.open(calib_filename.c_str(),ifstream::in);
+static void readCalibFileDaisy(const std::string calib_filename, cv::Mat_<float> &P){
+    std::ifstream myfile;
+    myfile.open(calib_filename.c_str(),std::ifstream::in);
 
     char line[512];
     while (myfile.getline(line, 512)) {
@@ -174,77 +177,77 @@ static void readCalibFileDaisy(const string calib_filename, Mat_<float> &P){
     myfile.close();
 }
 
-static void writeImageToFile(const char* outputFolder,const char* name,const Mat &img){
+static void writeImageToFile(const char* outputFolder,const char* name,const cv::Mat &img){
     char outputPath[256];
     sprintf(outputPath, "%s/%s.png", outputFolder,name);
-    imwrite(outputPath,img);
+    cv::imwrite(outputPath,img);
 }
 
 static void writeParametersToFile(char* resultsFile, InputFiles inputFiles, AlgorithmParameters &algParameters, GTcheckParameters &gtParameters, uint32_t numPixels){
 
-    ofstream myfile;
-    myfile.open (resultsFile, ios::out);
-    myfile << "Number of images: " << inputFiles.img_filenames.size() << endl;
-    myfile << "Image folder: " << inputFiles.images_folder << endl;
+    std::ofstream myfile;
+    myfile.open (resultsFile, std::ios::out);
+    myfile << "Number of images: " << inputFiles.img_filenames.size() << std::endl;
+    myfile << "Image folder: " << inputFiles.images_folder << std::endl;
     myfile << "Images: ";
     for(size_t i=0; i < inputFiles.img_filenames.size(); i++)
         myfile << inputFiles.img_filenames[i] << ", " ;
-    myfile << endl;
+    myfile << std::endl;
     if(numPixels != 0)
-        myfile << "Num. pixels: " << numPixels << endl;
-    myfile << "\nParameters:" << endl;
+        myfile << "Num. pixels: " << numPixels << std::endl;
+    myfile << "\nParameters:" << std::endl;
     myfile << "  Cost function: " ;
     if(algParameters.algorithm == PM_COST)
-        myfile << "PatchMatch Cost" << endl;
+        myfile << "PatchMatch Cost" << std::endl;
     else if(algParameters.algorithm == CENSUS_TRANSFORM)
-        myfile << "Census Transform" << endl;
+        myfile << "Census Transform" << std::endl;
     else if(algParameters.algorithm == SPARSE_CENSUS)
-        myfile << "Sparse Census Transform" << endl;
+        myfile << "Sparse Census Transform" << std::endl;
     else if(algParameters.algorithm == CENSUS_SELFSIMILARITY)
-        myfile << "Census Transform with Self-Similarity Propagation" << endl;
+        myfile << "Census Transform with Self-Similarity Propagation" << std::endl;
     else if(algParameters.algorithm == PM_SELFSIMILARITY)
-        myfile << "Patch Match Cost with Self-Similarity Propagation" << endl;
+        myfile << "Patch Match Cost with Self-Similarity Propagation" << std::endl;
     else
-        myfile << algParameters.algorithm << endl;
-    myfile << "  Kernel size: " << algParameters.box_hsize << " x " << algParameters.box_vsize << endl;
-    myfile << "  Number of iterations: " << algParameters.iterations << endl;
-    myfile << "  Max. disparity: " << algParameters.max_disparity << endl;
-    myfile << "  Depth min: " << algParameters.depthMin << endl;
-    myfile << "  Depth max: " << algParameters.depthMax << endl;
-    myfile << "  gamma: " << algParameters.gamma << endl;
-    myfile << "  alpha: " << algParameters.alpha << endl;
-    myfile << "  tauCol: " << algParameters.tau_color << endl;
-    myfile << "  tauGrad: " << algParameters.tau_gradient << endl;
-    myfile << "  border value: " << algParameters.border_value << endl;
-    myfile << "  disparity tolerance (occ check): " << algParameters.dispTol << endl;
-    myfile << "  normal tolerance (occ check): " << algParameters.normTol << endl;
-    myfile << "  census epsilon: " << algParameters.census_epsilon << endl;
-    myfile << "  self-similarity n: " << algParameters.self_similarity_n << endl;
-    myfile << "  cost good truncation factor: " << algParameters.good_factor << endl;
+        myfile << algParameters.algorithm << std::endl;
+    myfile << "  Kernel size: " << algParameters.box_hsize << " x " << algParameters.box_vsize << std::endl;
+    myfile << "  Number of iterations: " << algParameters.iterations << std::endl;
+    myfile << "  Max. disparity: " << algParameters.max_disparity << std::endl;
+    myfile << "  Depth min: " << algParameters.depthMin << std::endl;
+    myfile << "  Depth max: " << algParameters.depthMax << std::endl;
+    myfile << "  gamma: " << algParameters.gamma << std::endl;
+    myfile << "  alpha: " << algParameters.alpha << std::endl;
+    myfile << "  tauCol: " << algParameters.tau_color << std::endl;
+    myfile << "  tauGrad: " << algParameters.tau_gradient << std::endl;
+    myfile << "  border value: " << algParameters.border_value << std::endl;
+    myfile << "  disparity tolerance (occ check): " << algParameters.dispTol << std::endl;
+    myfile << "  normal tolerance (occ check): " << algParameters.normTol << std::endl;
+    myfile << "  census epsilon: " << algParameters.census_epsilon << std::endl;
+    myfile << "  self-similarity n: " << algParameters.self_similarity_n << std::endl;
+    myfile << "  cost good truncation factor: " << algParameters.good_factor << std::endl;
     myfile << "  cost combination: ";
     if(algParameters.cost_comb == COMB_ALL)
-        myfile << "ALL" << endl;
+        myfile << "ALL" << std::endl;
     else if(algParameters.cost_comb == COMB_BEST_N)
-        myfile << "BEST_N (n=" << algParameters.n_best << ")" << endl;
+        myfile << "BEST_N (n=" << algParameters.n_best << ")" << std::endl;
     else if(algParameters.cost_comb == COMB_ANGLE)
-        myfile << "ANGLE" << endl;
+        myfile << "ANGLE" << std::endl;
     else if(algParameters.cost_comb == COMB_GOOD)
-        myfile << "GOOD" << endl;
+        myfile << "GOOD" << std::endl;
     myfile << "  color processing: ";
     if(algParameters.color_processing)
-        myfile << "yes" << endl;
+        myfile << "yes" << std::endl;
     else
-        myfile << "no" << endl;
+        myfile << "no" << std::endl;
     myfile << "  view selection: ";
     if(algParameters.viewSelection)
-        myfile << "yes" << endl;
+        myfile << "yes" << std::endl;
     else
-        myfile << "no" << endl;
-    myfile << "  GT disparity tolerance: " << gtParameters.dispTolGT << "\n" << endl;
+        myfile << "no" << std::endl;
+    myfile << "  GT disparity tolerance: " << gtParameters.dispTolGT << "\n" << std::endl;
     myfile.close();
 }
 // read ground truth depth map file (dmb) (provided by Tola et al. "DAISY: A Fast Local Descriptor for Dense Matching" http://cvlab.epfl.ch/software/daisy)
-static int readDmbNormal (const char *filename, Mat_<Vec3f> &img)
+static int readDmbNormal (const char *filename, cv::Mat_<cv::Vec3f> &img)
 {
     FILE *inimage;
     inimage = fopen(filename, "rb");
@@ -274,14 +277,14 @@ static int readDmbNormal (const char *filename, Mat_<Vec3f> &img)
     data = (float*) malloc (sizeof(float)*dataSize);
     fread(data,sizeof(float),dataSize,inimage);
 
-    img = Mat(h,w,CV_32FC3,data);
+    img = cv::Mat(h,w,CV_32FC3,data);
 
     fclose(inimage);
     return 0;
 
 }
 // read ground truth depth map file (dmb) (provided by Tola et al. "DAISY: A Fast Local Descriptor for Dense Matching" http://cvlab.epfl.ch/software/daisy)
-static int readDmb(const char *filename, Mat_<float> &img)
+static int readDmb(const char *filename, cv::Mat_<float> &img)
 {
     FILE *inimage;
     inimage = fopen(filename, "rb");
@@ -311,13 +314,13 @@ static int readDmb(const char *filename, Mat_<float> &img)
     data = (float*) malloc (sizeof(float)*dataSize);
     fread(data,sizeof(float),dataSize,inimage);
 
-    img = Mat(h,w,CV_32F,data);
+    img = cv::Mat(h,w,CV_32F,data);
 
     fclose(inimage);
     return 0;
 
 }
-static int writeDmbNormal(const char *filename, Mat_<Vec3f> &img){
+static int writeDmbNormal(const char *filename, cv::Mat_<cv::Vec3f> &img){
     FILE *outimage;
     outimage = fopen(filename, "wb");
     if (!outimage)
@@ -342,7 +345,7 @@ static int writeDmbNormal(const char *filename, Mat_<Vec3f> &img){
     return 0;
 }
 
-static int writeDmb(const char *filename, Mat_<float> &img){
+static int writeDmb(const char *filename, cv::Mat_<float> &img){
     FILE *outimage;
     outimage = fopen(filename, "wb");
     if (!outimage)
@@ -369,7 +372,7 @@ static int writeDmb(const char *filename, Mat_<float> &img){
 
 static int readPfm( const char *filename,
                     //double ***u, // double matrix image
-                    Mat_<float> &img,
+                    cv::Mat_<float> &img,
                     long *nx, /*image size in x direction */
                     long *ny) /*image size in y direction */
 {
@@ -401,7 +404,7 @@ static int readPfm( const char *filename,
 
       /* allocate storage */
       //alloc_matrix_d (u, *nx, *ny);
-      img = Mat::zeros((int)*ny,(int)*nx,CV_32F);
+      img = cv::Mat::zeros((int)*ny,(int)*nx,CV_32F);
 
       /* read image data */
       for (j=0; j<*ny; j++)
@@ -428,7 +431,7 @@ static int readPfm( const char *filename,
 
       /* allocate storage */
       //alloc_matrix_d (u, (*nx)*4*3, (*ny)*4*3);
-      img = Mat::zeros((int)*ny,(int)*nx,CV_32F);
+      img = cv::Mat::zeros((int)*ny,(int)*nx,CV_32F);
 
       float tmpfloat;
 //      printf("Float is %lu bytes big\n", sizeof(float));

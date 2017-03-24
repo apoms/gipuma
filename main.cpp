@@ -426,233 +426,6 @@ static int getParametersFromCommandLine ( int argc,
     return 0;
 }
 
-static void selectViews (CameraParameters &cameraParams, int imgWidth, int imgHeight, AlgorithmParameters &algParams ) {
-    vector<Camera> &cameras = cameraParams.cameras;
-    Camera ref = cameras[cameraParams.idRef];
-
-    int x = imgWidth / 2;
-    int y = imgHeight / 2;
-
-    cameraParams.viewSelectionSubset.clear ();
-
-    Vec3f viewVectorRef = getViewVector ( ref, x, y);
-
-    // TODO hardcoded value makes it a parameter
-    float minimum_angle_degree = algParams.min_angle;
-    float maximum_angle_degree = algParams.max_angle;
-
-    unsigned int maximum_view = algParams.max_views;
-    float minimum_angle_radians = minimum_angle_degree * M_PI / 180.0f;
-    float maximum_angle_radians = maximum_angle_degree * M_PI / 180.0f;
-    float min_depth = 9999;
-    float max_depth = 0;
-    if ( algParams.viewSelection )
-        printf("Accepting intersection angle of central rays from %f to %f degrees, use --min_angle=<angle> and --max_angle=<angle> to modify them\n", minimum_angle_degree, maximum_angle_degree);
-    for ( size_t i = 1; i < cameras.size (); i++ ) {
-        //if ( !algParams.viewSelection ) { //select all views, dont perform selection
-            //cameraParams.viewSelectionSubset.push_back ( i );
-            //continue;
-        //}
-
-        Vec3f vec = getViewVector ( cameras[i], x, y);
-
-        float baseline = norm (cameras[0].C, cameras[i].C);
-        float angle = getAngle ( viewVectorRef, vec );
-        if ( angle > minimum_angle_radians &&
-             angle < maximum_angle_radians ) //0.6 select if angle between 5.7 and 34.8 (0.6) degrees (10 and 30 degrees suggested by some paper)
-        {
-            if ( algParams.viewSelection ) {
-                cameraParams.viewSelectionSubset.push_back ( i );
-                //printf("\taccepting camera %ld with angle\t %f degree (%f radians) and baseline %f\n", i, angle*180.0f/M_PI, angle, baseline);
-            }
-            float min_range = (baseline/2.0f) / sin(maximum_angle_radians/2.0f);
-            float max_range = (baseline/2.0f) / sin(minimum_angle_radians/2.0f);
-            min_depth = std::min(min_range, min_depth);
-            max_depth = std::max(max_range, max_depth);
-            //printf("Min max ranges are %f %f\n", min_range, max_range);
-            //printf("Min max depth are %f %f\n", min_depth, max_depth);
-        }
-        //else
-            //printf("Discarding camera %ld with angle\t %f degree (%f radians) and baseline, %f\n", i, angle*180.0f/M_PI, angle, baseline);
-    }
-
-    if (algParams.depthMin == -1)
-        algParams.depthMin = min_depth;
-    if (algParams.depthMax == -1)
-        algParams.depthMax = max_depth;
-
-    if (!algParams.viewSelection) {
-        cameraParams.viewSelectionSubset.clear();
-        for ( size_t i = 1; i < cameras.size (); i++ )
-            cameraParams.viewSelectionSubset.push_back ( i );
-        return;
-    }
-    if (cameraParams.viewSelectionSubset.size() >= maximum_view) {
-        printf("Too many camera, randomly selecting only %d of them (modify with --max_views=<number>)\n", maximum_view);
-        std::srand ( unsigned ( std::time(0) ) );
-        std::random_shuffle( cameraParams.viewSelectionSubset.begin(), cameraParams.viewSelectionSubset.end() ); // shuffle elements of v
-        cameraParams.viewSelectionSubset.erase (cameraParams.viewSelectionSubset.begin()+maximum_view,cameraParams.viewSelectionSubset.end());
-    }
-    //for (auto i : cameraParams.viewSelectionSubset )
-        //printf("\taccepting camera %d\n", i);
-}
-
-static void delTexture (int num, cudaTextureObject_t texs[], cudaArray *cuArray[])
-{
-    for (int i=0; i<num; i++) {
-        cudaFreeArray(cuArray[i]);
-        cudaDestroyTextureObject(texs[i]);
-    }
-}
-
-static void addImageToTextureUint (vector<Mat_<uint8_t> > &imgs, cudaTextureObject_t texs[], cudaArray *cuArray[])
-{
-    for (size_t i=0; i<imgs.size(); i++)
-    {
-        int rows = imgs[i].rows;
-        int cols = imgs[i].cols;
-        // Create channel with uint8_t point type
-        cudaChannelFormatDesc channelDesc =
-        //cudaCreateChannelDesc (8,
-                               //0,
-                               //0,
-                               //0,
-                               //cudaChannelFormatKindUnsigned);
-        cudaCreateChannelDesc<char>();
-        // Allocate array with correct size and number of channels
-        checkCudaErrors(cudaMallocArray(&cuArray[i],
-                                        &channelDesc,
-                                        cols,
-                                        rows));
-
-        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
-                                              0,
-                                              0,
-                                              imgs[i].ptr<uint8_t>(),
-                                              imgs[i].step[0],
-                                              cols*sizeof(uint8_t),
-                                              rows,
-                                              cudaMemcpyHostToDevice));
-
-        // Specify texture
-        struct cudaResourceDesc resDesc;
-        memset(&resDesc, 0, sizeof(resDesc));
-        resDesc.resType         = cudaResourceTypeArray;
-        resDesc.res.array.array = cuArray[i];
-
-        // Specify texture object parameters
-        struct cudaTextureDesc texDesc;
-        memset(&texDesc, 0, sizeof(texDesc));
-        texDesc.addressMode[0]   = cudaAddressModeWrap;
-        texDesc.addressMode[1]   = cudaAddressModeWrap;
-        texDesc.filterMode       = cudaFilterModePoint;
-        texDesc.readMode         = cudaReadModeElementType;
-        texDesc.normalizedCoords = 0;
-
-        // Create texture object
-        //cudaTextureObject_t &texObj = texs[i];
-        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
-        //texs[i] = texObj;
-    }
-    return;
-}
-static void addImageToTextureFloatColor (vector<Mat > &imgs, cudaTextureObject_t texs[], cudaArray *cuArray[])
-{
-    for (size_t i=0; i<imgs.size(); i++)
-    {
-        int rows = imgs[i].rows;
-        int cols = imgs[i].cols;
-        // Create channel with floating point type
-        cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<float4>();
-
-        // Allocate array with correct size and number of channels
-        //cudaArray *cuArray;
-        checkCudaErrors(cudaMallocArray(&cuArray[i],
-                                        &channelDesc,
-                                        cols,
-                                        rows));
-
-        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
-                                              0,
-                                              0,
-                                              imgs[i].ptr<float>(),
-                                              imgs[i].step[0],
-                                              cols*sizeof(float)*4,
-                                              rows,
-                                              cudaMemcpyHostToDevice));
-
-        // Specify texture
-        struct cudaResourceDesc resDesc;
-        memset(&resDesc, 0, sizeof(resDesc));
-        resDesc.resType         = cudaResourceTypeArray;
-        resDesc.res.array.array = cuArray[i];
-
-        // Specify texture object parameters
-        struct cudaTextureDesc texDesc;
-        memset(&texDesc, 0, sizeof(texDesc));
-        texDesc.addressMode[0]   = cudaAddressModeWrap;
-        texDesc.addressMode[1]   = cudaAddressModeWrap;
-        texDesc.filterMode       = cudaFilterModeLinear;
-        texDesc.readMode         = cudaReadModeElementType;
-        texDesc.normalizedCoords = 0;
-
-        // Create texture object
-        //cudaTextureObject_t &texObj = texs[i];
-        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
-    }
-    return;
-}
-
-static void addImageToTextureFloatGray (vector<Mat > &imgs, cudaTextureObject_t texs[], cudaArray *cuArray[])
-{
-    for (size_t i=0; i<imgs.size(); i++)
-    {
-        int rows = imgs[i].rows;
-        int cols = imgs[i].cols;
-        // Create channel with floating point type
-        cudaChannelFormatDesc channelDesc =
-        cudaCreateChannelDesc (32,
-                               0,
-                               0,
-                               0,
-                               cudaChannelFormatKindFloat);
-        // Allocate array with correct size and number of channels
-        checkCudaErrors(cudaMallocArray(&cuArray[i],
-                                        &channelDesc,
-                                        cols,
-                                        rows));
-
-        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
-                                              0,
-                                              0,
-                                              imgs[i].ptr<float>(),
-                                              imgs[i].step[0],
-                                              cols*sizeof(float),
-                                              rows,
-                                              cudaMemcpyHostToDevice));
-
-        // Specify texture
-        struct cudaResourceDesc resDesc;
-        memset(&resDesc, 0, sizeof(resDesc));
-        resDesc.resType         = cudaResourceTypeArray;
-        resDesc.res.array.array = cuArray[i];
-
-        // Specify texture object parameters
-        struct cudaTextureDesc texDesc;
-        memset(&texDesc, 0, sizeof(texDesc));
-        texDesc.addressMode[0]   = cudaAddressModeWrap;
-        texDesc.addressMode[1]   = cudaAddressModeWrap;
-        texDesc.filterMode       = cudaFilterModeLinear;
-        texDesc.readMode         = cudaReadModeElementType;
-        texDesc.normalizedCoords = 0;
-
-        // Create texture object
-        //cudaTextureObject_t &texObj = texs[i];
-        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
-        //texs[i] = texObj;
-    }
-    return;
-}
 
 static void selectCudaDevice ()
 {
@@ -908,7 +681,8 @@ static int runGipuma ( InputFiles &inputFiles,
         double minVal, maxVal;
         minMaxLoc ( disp[i], &minVal, &maxVal );
     }
-    cout << "Range of Minimum/Maximum depth is: " << algParams.min_disparity << " " << algParams.max_disparity << ", change it with --depth_min=<value> and  --depth_max=<value>" <<endl;
+    cout << "Range of Minimum/Maximum disparity is: " << algParams.min_disparity << " " << algParams.max_disparity << ", change it with --depth_min=<value> and  --depth_max=<value>" <<endl;
+    cout << "Range of Minimum/Maximum depth is: " << algParams.depthMin<< " " << algParams.depthMax << endl;
 
     // run gpu run
     // Init parameters
@@ -972,6 +746,8 @@ static int runGipuma ( InputFiles &inputFiles,
     runcuda(*gs);
     Mat_<Vec3f> norm0 = Mat::zeros ( img_grayscale[0].rows, img_grayscale[0].cols, CV_32FC3 );
     Mat_<float> cudadisp = Mat::zeros ( img_grayscale[0].rows, img_grayscale[0].cols, CV_32FC1 );
+    float min_cost = 1000000;
+    float max_cost = 0;
     for( int i = 0; i < img_grayscale[0].cols; i++ )
         for( int j = 0; j < img_grayscale[0].rows; j++ )
         {
@@ -981,8 +757,11 @@ static int runGipuma ( InputFiles &inputFiles,
                                    n.y,
                                    n.z);
             cudadisp (j, i) = gs->lines->norm4[i+img_grayscale[0].cols*j].w;
+            min_cost = std::min(min_cost, gs->lines->c[center]);
+            max_cost = std::max(max_cost, gs->lines->c[center]);
         }
 
+    printf("min %f, max %f\n", min_cost, max_cost);
     Mat_<Vec3f> norm0disp = norm0.clone ();
     Mat planes_display, planescalib_display, planescalib_display2;
     getNormalsForDisplay ( norm0disp, planes_display );
@@ -1221,4 +1000,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

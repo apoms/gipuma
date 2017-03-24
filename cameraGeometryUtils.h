@@ -6,12 +6,25 @@
  */
 
 #pragma once
+#include "files.h"
+#include "fileIoUtils.h"
 #include "mathUtils.h"
+#include "gipuma.h"
 #include <limits>
 #include <signal.h>
 
-Mat_<float> getColSubMat ( Mat_<float> M, int* indices, int numCols ) {
-    Mat_<float> subMat = Mat::zeros ( M.rows,numCols,CV_32F );
+#include "opencv2/calib3d/calib3d.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/core/core.hpp"
+#include "opencv2/core/base.hpp"
+#include "opencv2/highgui/highgui.hpp"
+//#include "opencv2/contrib/contrib.hpp"
+#if CV_MAJOR_VERSION == 3
+#include "opencv2/core/utility.hpp"
+#endif
+
+cv::Mat_<float> getColSubMat ( cv::Mat_<float> M, int* indices, int numCols ) {
+    cv::Mat_<float> subMat = cv::Mat::zeros ( M.rows,numCols,CV_32F );
     for ( int i = 0; i < numCols; i++ ) {
         M.col ( indices[i] ).copyTo ( subMat.col ( i ) );
     }
@@ -19,10 +32,10 @@ Mat_<float> getColSubMat ( Mat_<float> M, int* indices, int numCols ) {
 }
 
 // Multi View Geometry, page 163
-Mat_<float> getCameraCenter ( Mat_<float> &P ) {
-    Mat_<float> C = Mat::zeros ( 4,1,CV_32F );
+cv::Mat_<float> getCameraCenter ( cv::Mat_<float> &P ) {
+    cv::Mat_<float> C = cv::Mat::zeros ( 4,1,CV_32F );
 
-    Mat_<float> M = Mat::zeros ( 3,3,CV_32F );
+    cv::Mat_<float> M = cv::Mat::zeros ( 3,3,CV_32F );
 
     int xIndices[] = { 1, 2, 3 };
     int yIndices[] = { 0, 2, 3 };
@@ -48,48 +61,48 @@ Mat_<float> getCameraCenter ( Mat_<float> &P ) {
     return C;
 }
 
-inline Vec3f get3Dpoint ( Camera &cam, float x, float y, float depth ) {
+inline cv::Vec3f get3Dpoint ( Camera &cam, float x, float y, float depth ) {
     // in case camera matrix is not normalized: see page 162, then depth might not be the real depth but w and depth needs to be computed from that first
 
-    Mat_<float> pt = Mat::ones ( 3,1,CV_32F );
+    cv::Mat_<float> pt = cv::Mat::ones ( 3,1,CV_32F );
     pt ( 0,0 ) = x;
     pt ( 1,0 ) = y;
 
     //formula taken from page 162 (alternative expression)
-    Mat_<float> ptX = cam.M_inv * ( depth*pt - cam.P.col ( 3 ) );
-    return Vec3f ( ptX ( 0 ),ptX ( 1 ),ptX ( 2 ) );
+    cv::Mat_<float> ptX = cam.M_inv * ( depth*pt - cam.P.col ( 3 ) );
+    return cv::Vec3f ( ptX ( 0 ),ptX ( 1 ),ptX ( 2 ) );
 }
 
-inline Vec3f get3Dpoint ( Camera &cam, int x, int y, float depth ){
+inline cv::Vec3f get3Dpoint ( Camera &cam, int x, int y, float depth ){
     return get3Dpoint(cam,(float)x,(float)y,depth);
 }
 
 // get the viewing ray for a pixel position of the camera
-static inline Vec3f getViewVector ( Camera &cam, int x, int y) {
+static inline cv::Vec3f getViewVector ( Camera &cam, int x, int y) {
 
     //get some point on the line (the other point on the line is the camera center)
-    Vec3f ptX = get3Dpoint ( cam,x,y,1.0f );
+    cv::Vec3f ptX = get3Dpoint ( cam,x,y,1.0f );
 
     //get vector between camera center and other point on the line
-    Vec3f v = ptX - cam.C;
+    cv::Vec3f v = ptX - cam.C;
     return normalize ( v );
 }
 
 /* get depth from 3D point
  * page 162: w = P3T*X (P3T ... third (=last) row of projection matrix P)
  */
-float getDepth ( Vec3f &X, Mat_<float> &P ) {
+float getDepth ( cv::Vec3f &X, cv::Mat_<float> &P ) {
     //assuming homogenous component of X being 1
     float w =  P ( 2,0 )*X ( 0 ) + P ( 2,1 ) * X ( 1 ) + P ( 2,2 ) * X ( 2 ) + P ( 2,3 );
 
     return w;
 }
 
-Mat_<float> getTransformationMatrix ( Mat_<float> R, Mat_<float> t ) {
-    Mat_<float> transMat = Mat::eye ( 4,4, CV_32F );
+cv::Mat_<float> getTransformationMatrix ( cv::Mat_<float> R, cv::Mat_<float> t ) {
+    cv::Mat_<float> transMat = cv::Mat::eye ( 4,4, CV_32F );
     //Mat_<float> Rt = - R * t;
-    R.copyTo ( transMat ( Range ( 0,3 ),Range ( 0,3 ) ) );
-    t.copyTo ( transMat ( Range ( 0,3 ),Range ( 3,4 ) ) );
+    R.copyTo ( transMat ( cv::Range ( 0,3 ),cv::Range ( 0,3 ) ) );
+    t.copyTo ( transMat ( cv::Range ( 0,3 ),cv::Range ( 3,4 ) ) );
 
     return transMat;
 }
@@ -106,36 +119,36 @@ float disparityDepthConversion ( float f, float baseline, float d ) {
     return f * baseline / d;
 }
 
-Mat_<float> getTransformationReferenceToOrigin ( Mat_<float> R,Mat_<float> t ) {
+cv::Mat_<float> getTransformationReferenceToOrigin ( cv::Mat_<float> R,cv::Mat_<float> t ) {
     // create rotation translation matrix
-    Mat_<float> transMat_original = getTransformationMatrix ( R,t );
+    cv::Mat_<float> transMat_original = getTransformationMatrix ( R,t );
 
     // get transformation matrix for [R1|t1] = [I|0]
     return transMat_original.inv ();
 }
 
-void transformCamera ( Mat_<float> R,Mat_<float> t, Mat_<float> transform, Camera &cam, Mat_<float> K ) {
+void transformCamera ( cv::Mat_<float> R,cv::Mat_<float> t, cv::Mat_<float> transform, Camera &cam, cv::Mat_<float> K ) {
     // create rotation translation matrix
-    Mat_<float> transMat_original = getTransformationMatrix ( R,t );
+    cv::Mat_<float> transMat_original = getTransformationMatrix ( R,t );
 
     //transform
-    Mat_<float> transMat_t = transMat_original * transform;
+    cv::Mat_<float> transMat_t = transMat_original * transform;
 
     // compute translated P (only consider upper 3x4 matrix)
-    cam.P = K * transMat_t ( Range ( 0,3 ),Range ( 0,4 ) );
+    cam.P = K * transMat_t ( cv::Range ( 0,3 ),cv::Range ( 0,4 ) );
     // set R and t
-    cam.R = transMat_t ( Range ( 0,3 ),Range ( 0,3 ) );
-    cam.t = transMat_t ( Range ( 0,3 ),Range ( 3,4 ) );
+    cam.R = transMat_t ( cv::Range ( 0,3 ),cv::Range ( 0,3 ) );
+    cam.t = transMat_t ( cv::Range ( 0,3 ),cv::Range ( 3,4 ) );
     // set camera center C
-    Mat_<float> C = getCameraCenter ( cam.P );
+    cv::Mat_<float> C = getCameraCenter ( cam.P );
 
     C = C / C ( 3,0 );
-    cam.C = Vec3f ( C ( 0,0 ),C ( 1,0 ),C ( 2,0 ) );
+    cam.C = cv::Vec3f ( C ( 0,0 ),C ( 1,0 ),C ( 2,0 ) );
 }
 
-Mat_<float> scaleK ( Mat_<float> K, float scaleFactor ) {
+cv::Mat_<float> scaleK ( cv::Mat_<float> K, float scaleFactor ) {
 
-    Mat_<float> K_scaled = K.clone();
+    cv::Mat_<float> K_scaled = K.clone();
     //scale focal length
     K_scaled ( 0,0 ) = K ( 0,0 ) / scaleFactor;
     K_scaled ( 1,1 ) = K ( 1,1 ) / scaleFactor;
@@ -145,19 +158,19 @@ Mat_<float> scaleK ( Mat_<float> K, float scaleFactor ) {
 
     return K_scaled;
 }
-void copyOpencvVecToFloat4 ( Vec3f &v, float4 *a)
+void copyOpencvVecToFloat4 ( cv::Vec3f &v, float4 *a)
 {
     a->x = v(0);
     a->y = v(1);
     a->z = v(2);
 }
-void copyOpencvVecToFloatArray ( Vec3f &v, float *a)
+void copyOpencvVecToFloatArray ( cv::Vec3f &v, float *a)
 {
     a[0] = v(0);
     a[1] = v(1);
     a[2] = v(2);
 }
-void copyOpencvMatToFloatArray ( Mat_<float> &m, float **a)
+void copyOpencvMatToFloatArray ( cv::Mat_<float> &m, float **a)
 {
     for (int pj=0; pj<m.rows ; pj++)
         for (int pi=0; pi<m.cols ; pi++)
@@ -166,6 +179,11 @@ void copyOpencvMatToFloatArray ( Mat_<float> &m, float **a)
         }
 }
 
+
+CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
+                                       CameraParameters& params,
+                                       float scaleFactor,
+                                       bool transformP);
 /* get camera parameters (e.g. projection matrices) from file
  * Input:  inputFiles  - pathes to calibration files
  *         scaleFactor - if image was rescaled we need to adapt calibration matrix K accordingly
@@ -189,7 +207,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         params.rectified = false; // for Kitti data is actually rectified, set this to true for computation in disparity space
 
     }
-    Mat_<float> KMaros = Mat::eye ( 3, 3, CV_32F );
+    cv::Mat_<float> KMaros = cv::Mat::eye ( 3, 3, CV_32F );
     KMaros(0,0) = 8066.0;
     KMaros(1,1) = 8066.0;
     KMaros(0,2) = 2807.5;
@@ -202,7 +220,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         params.cameras.resize ( numCameras );
         for ( size_t i = 0; i < numCameras; i++ ) {
             int lastindex = inputFiles.img_filenames[i].find_last_of(".");
-            string filename_without_extension = inputFiles.img_filenames[i].substr(0, lastindex);
+            std::string filename_without_extension = inputFiles.img_filenames[i].substr(0, lastindex);
             readPFileStrechaPmvs ( inputFiles.p_folder + filename_without_extension + ".txt",params.cameras[i].P );
             unsigned found = inputFiles.img_filenames[i].find_last_of ( "." );
             //params.cameras[i].id = atoi ( inputFiles.img_filenames[i].substr ( 0,found ).c_str () );
@@ -235,18 +253,25 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         readKRtFileMiddlebury ( inputFiles.krt_file, params.cameras, inputFiles);
     }
 
-
     /*cout << "KMaros is" << endl;*/
     /*cout << KMaros << endl;*/
 
+    return getCameraParameters(cpc, params, scaleFactor, transformP);
+}
+
+CameraParameters getCameraParameters(CameraParameters_cu &cpc,
+                                     CameraParameters& params,
+                                     float scaleFactor = 1.0f,
+                                     bool transformP = true) {
+    size_t numCameras = params.cameras.size();
 
     // decompose projection matrices into K, R and t
-    vector<Mat_<float> > K ( numCameras );
-    vector<Mat_<float> > R ( numCameras );
-    vector<Mat_<float> > T ( numCameras );
+    std::vector<cv::Mat_<float> > K ( numCameras );
+    std::vector<cv::Mat_<float> > R ( numCameras );
+    std::vector<cv::Mat_<float> > T ( numCameras );
 
-    vector<Mat_<float> > C ( numCameras );
-    vector<Mat_<float> > t ( numCameras );
+    std::vector<cv::Mat_<float> > C ( numCameras );
+    std::vector<cv::Mat_<float> > t ( numCameras );
 
     for ( size_t i = 0; i < numCameras; i++ ) {
         decomposeProjectionMatrix ( params.cameras[i].P,K[i],R[i],T[i] );
@@ -256,7 +281,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         //cout << "T: " << T[i] << endl;
 
         // get 3-dimensional translation vectors and camera center (divide by augmented component)
-        C[i] = T[i] ( Range ( 0,3 ),Range ( 0,1 ) ) / T[i] ( 3,0 );
+        C[i] = T[i] ( cv::Range ( 0,3 ),cv::Range ( 0,1 ) ) / T[i] ( 3,0 );
         t[i] = -R[i] * C[i];
 
         //cout << "C: " << C[i] << endl;
@@ -265,7 +290,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
 
     // transform projection matrices (R and t part) so that P1 = K [I | 0]
     //computeTranslatedProjectionMatrices(R1, R2, t1, t2, params);
-    Mat_<float> transform = Mat::eye ( 4,4 ,CV_32F);
+    cv::Mat_<float> transform = cv::Mat::eye ( 4,4 ,CV_32F);
 
     if ( transformP )
         transform = getTransformationReferenceToOrigin ( R[0],t[0] );
@@ -286,18 +311,18 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         params.cameras[i].K_inv = params.cameras[i].K.inv ( );
         //params.cameras[i].f = params.cameras[i].K(0,0);
 
-        if ( !inputFiles.bounding_folder.empty () ) {
-            Vec3f ptBL, ptTR;
-            readBoundingVolume ( inputFiles.bounding_folder + inputFiles.img_filenames[i] + ".bounding",ptBL,ptTR );
+        // if ( !inputFiles.bounding_folder.empty () ) {
+        //     cv::Vec3f ptBL, ptTR;
+        //     readBoundingVolume ( inputFiles.bounding_folder + inputFiles.img_filenames[i] + ".bounding",ptBL,ptTR );
 
-            cout << "d1: " << getDepth ( ptBL,params.cameras[i].P ) <<endl;
-            cout << "d2: " << getDepth ( ptTR,params.cameras[i].P ) <<endl;
-        }
+        //     cout << "d1: " << getDepth ( ptBL,params.cameras[i].P ) <<endl;
+        //     cout << "d2: " << getDepth ( ptTR,params.cameras[i].P ) <<endl;
+        // }
 
-        params.cameras[i].R_orig_inv = R[i].inv (DECOMP_SVD);
+        params.cameras[i].R_orig_inv = R[i].inv(cv::DECOMP_SVD);
         transformCamera ( R[i],t[i], transform,    params.cameras[i],params.K );
 
-        params.cameras[i].P_inv = params.cameras[i].P.inv ( DECOMP_SVD );
+        params.cameras[i].P_inv = params.cameras[i].P.inv ( cv::DECOMP_SVD );
         params.cameras[i].M_inv = params.cameras[i].P.colRange ( 0,3 ).inv ();
 
         // set camera baseline (if unknown we need to guess something)
@@ -305,7 +330,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         params.cameras[i].baseline = 0.54f; //0.54 = Kitti baseline
 
         // K
-        Mat_<float> tmpK = params.K.t ();
+        cv::Mat_<float> tmpK = params.K.t ();
         //copyOpencvMatToFloatArray ( params.K, &cpc.K);
         //copyOpencvMatToFloatArray ( params.K_inv, &cpc.K_inv);
         copyOpencvMatToFloatArray ( params.cameras[i].K, &cpc.cameras[i].K);
@@ -336,7 +361,7 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         cpc.cameras[i].t4.x = params.cameras[i].t(0);
         cpc.cameras[i].t4.y = params.cameras[i].t(1);
         cpc.cameras[i].t4.z = params.cameras[i].t(2);
-        Mat_<float> tmp = params.cameras[i].P.col(3);
+        cv::Mat_<float> tmp = params.cameras[i].P.col(3);
         /*cpc.cameras[i].P_col3[0] = tmp(0,0);*/
         /*cpc.cameras[i].P_col3[1] = tmp(1,0);*/
         /*cpc.cameras[i].P_col3[2] = tmp(2,0);*/
@@ -346,9 +371,81 @@ CameraParameters getCameraParameters ( CameraParameters_cu &cpc,
         //cout << params.cameras[i].P << endl;
         //cout << endl;
 
-        Mat_<float> tmpKinv = params.K_inv.t ();
+        cv::Mat_<float> tmpKinv = params.K_inv.t ();
     }
 
     return params;
 }
 
+void selectViews(CameraParameters &cameraParams, int imgWidth, int imgHeight,
+                 AlgorithmParameters &algParams) {
+  std::vector<Camera> &cameras = cameraParams.cameras;
+    Camera ref = cameras[cameraParams.idRef];
+
+    int x = imgWidth / 2;
+    int y = imgHeight / 2;
+
+    cameraParams.viewSelectionSubset.clear ();
+
+    cv::Vec3f viewVectorRef = getViewVector ( ref, x, y);
+
+    // TODO hardcoded value makes it a parameter
+    float minimum_angle_degree = algParams.min_angle;
+    float maximum_angle_degree = algParams.max_angle;
+
+    unsigned int maximum_view = algParams.max_views;
+    float minimum_angle_radians = minimum_angle_degree * M_PI / 180.0f;
+    float maximum_angle_radians = maximum_angle_degree * M_PI / 180.0f;
+    float min_depth = 9999;
+    float max_depth = 0;
+    if ( algParams.viewSelection )
+        printf("Accepting intersection angle of central rays from %f to %f degrees, use --min_angle=<angle> and --max_angle=<angle> to modify them\n", minimum_angle_degree, maximum_angle_degree);
+    for ( size_t i = 1; i < cameras.size (); i++ ) {
+        //if ( !algParams.viewSelection ) { //select all views, dont perform selection
+            //cameraParams.viewSelectionSubset.push_back ( i );
+            //continue;
+        //}
+
+        cv::Vec3f vec = getViewVector(cameras[i], x, y);
+
+        float baseline = cv::norm (cameras[0].C, cameras[i].C);
+        float angle = getAngle ( viewVectorRef, vec );
+        printf("baseline %f, angle %f\n", baseline, angle * 180.0f / M_PI);
+        if ( angle > minimum_angle_radians &&
+             angle < maximum_angle_radians ) //0.6 select if angle between 5.7 and 34.8 (0.6) degrees (10 and 30 degrees suggested by some paper)
+        {
+            if ( algParams.viewSelection ) {
+                cameraParams.viewSelectionSubset.push_back ( i );
+                //printf("\taccepting camera %ld with angle\t %f degree (%f radians) and baseline %f\n", i, angle*180.0f/M_PI, angle, baseline);
+            }
+            float min_range = (baseline/2.0f) / sin(maximum_angle_radians/2.0f);
+            float max_range = (baseline/2.0f) / sin(minimum_angle_radians/2.0f);
+            min_depth = std::min(min_range, min_depth);
+            max_depth = std::max(max_range, max_depth);
+            //printf("Min max ranges are %f %f\n", min_range, max_range);
+            //printf("Min max depth are %f %f\n", min_depth, max_depth);
+        }
+        //else
+            //printf("Discarding camera %ld with angle\t %f degree (%f radians) and baseline, %f\n", i, angle*180.0f/M_PI, angle, baseline);
+    }
+
+    if (algParams.depthMin == -1)
+        algParams.depthMin = min_depth;
+    if (algParams.depthMax == -1)
+        algParams.depthMax = max_depth;
+
+    if (!algParams.viewSelection) {
+        cameraParams.viewSelectionSubset.clear();
+        for ( size_t i = 1; i < cameras.size (); i++ )
+            cameraParams.viewSelectionSubset.push_back ( i );
+        return;
+    }
+    if (cameraParams.viewSelectionSubset.size() >= maximum_view) {
+        printf("Too many camera, randomly selecting only %d of them (modify with --max_views=<number>)\n", maximum_view);
+        std::srand ( unsigned ( std::time(0) ) );
+        std::random_shuffle( cameraParams.viewSelectionSubset.begin(), cameraParams.viewSelectionSubset.end() ); // shuffle elements of v
+        cameraParams.viewSelectionSubset.erase (cameraParams.viewSelectionSubset.begin()+maximum_view,cameraParams.viewSelectionSubset.end());
+    }
+    //for (auto i : cameraParams.viewSelectionSubset )
+        //printf("\taccepting camera %d\n", i);
+}

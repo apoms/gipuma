@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "opencv2/core/core.hpp"
+
 #ifndef M_PI
 #define M_PI    3.14159265358979323846f
 #endif
@@ -20,7 +22,7 @@ static float roundf ( float val ) {
  * Input: v1,v2 - vectors
  * Output: angle in radian
  */
-static float getAngle ( Vec3f v1, Vec3f v2 ) {
+static float getAngle ( cv::Vec3f v1, cv::Vec3f v2 ) {
 	float angle = acosf ( v1.dot ( v2 ) );
 	//if angle is not a number the dot product was 1 and thus the two vectors should be identical --> return 0
 	if ( angle != angle )

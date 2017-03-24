@@ -20,6 +20,7 @@
 #include <curand_kernel.h>
 #include "vector_operations.h"
 #include "helper_cuda.h"
+#include "gipuma.h"
 
 
 //#define CENSUS
@@ -45,14 +46,13 @@ __device__ float K[16];
 __device__ float K_inv[16];
 
 #ifndef SHARED_HARDCODED
-__managed__ int SHARED_SIZE_W_m;
 __constant__ int SHARED_SIZE_W;
-__managed__ int SHARED_SIZE_H;
-__managed__ int SHARED_SIZE = 0;
-__managed__ int WIN_RADIUS_W;
-__managed__ int WIN_RADIUS_H;
-__managed__ int TILE_W;
-__managed__ int TILE_H;
+__constant__ int SHARED_SIZE_H;
+__constant__ int SHARED_SIZE = 0;
+__constant__ int WIN_RADIUS_W;
+__constant__ int WIN_RADIUS_H;
+__constant__ int TILE_W;
+__constant__ int TILE_H;
 #endif
 
 /*__device__ FORCEINLINE __constant__ float4 camerasK[32];*/
@@ -1843,22 +1843,29 @@ void gipuma(GlobalState &gs)
 #ifndef SHARED_HARDCODED
     int blocksize_w = gs.params->box_hsize + 1; // +1 for the gradient computation
     int blocksize_h = gs.params->box_vsize + 1; // +1 for the gradient computation
-    WIN_RADIUS_W = (blocksize_w) / (2);
-    WIN_RADIUS_H = (blocksize_h) / (2);
+    int win_radius_w = (blocksize_w) / (2);
+    int win_radius_h = (blocksize_h) / (2);
 
     int BLOCK_W = 32;
     int BLOCK_H = (BLOCK_W/2);
-    TILE_W = BLOCK_W;
-    TILE_H = BLOCK_H * 2;
-    SHARED_SIZE_W_m  = (TILE_W + WIN_RADIUS_W * 2);
-    SHARED_SIZE_H = (TILE_H + WIN_RADIUS_H * 2);
-    SHARED_SIZE = (SHARED_SIZE_W_m * SHARED_SIZE_H);
-    cudaMemcpyToSymbol (SHARED_SIZE_W, &SHARED_SIZE_W_m, sizeof(SHARED_SIZE_W_m));
+    int tile_w = BLOCK_W;
+    int tile_h = BLOCK_H * 2;
+    int size_w  = (tile_w + win_radius_w * 2);
+    int size_h = (tile_h + win_radius_h * 2);
+    int shared_size = (size_w * size_h);
+
+    cudaMemcpyToSymbol(SHARED_SIZE_W, &size_w, sizeof(SHARED_SIZE_W));
+    cudaMemcpyToSymbol(SHARED_SIZE_H, &size_h, sizeof(SHARED_SIZE_H));
+    cudaMemcpyToSymbol(SHARED_SIZE, &shared_size, sizeof(SHARED_SIZE));
+    cudaMemcpyToSymbol(WIN_RADIUS_W, &win_radius_w, sizeof(WIN_RADIUS_W));
+    cudaMemcpyToSymbol(WIN_RADIUS_H, &win_radius_h, sizeof(WIN_RADIUS_W));
+    cudaMemcpyToSymbol(TILE_W, &tile_w, sizeof(TILE_W));
+    cudaMemcpyToSymbol(TILE_H, &tile_h, sizeof(TILE_H));
     //SHARED_SIZE_W_host = SHARED_SIZE_W_m;
 #else
     //SHARED_SIZE_W_host = SHARED_SIZE;
 #endif
-    int shared_size_host = SHARED_SIZE;
+    int shared_size_host = shared_size;
 
     dim3 grid_size;
     grid_size.x=(cols+BLOCK_W-1)/BLOCK_W;
@@ -1938,6 +1945,10 @@ void gipuma(GlobalState &gs)
         gipuma_black_cu<T><<< grid_size, block_size, shared_size_host * sizeof(T)>>>(gs, it);
         gipuma_red_cu<T><<< grid_size, block_size, shared_size_host * sizeof(T)>>>(gs, it);
 #endif
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            printf("Error: %s\n", cudaGetErrorString(err));
+        }
     }
     printf("\n");
     //printf("Computing final disparity\n");
@@ -1946,17 +1957,17 @@ void gipuma(GlobalState &gs)
     cudaEventRecord(stop);
 
     cudaEventSynchronize(stop);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("Error: %s\n", cudaGetErrorString(err));
+    }
 
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
     printf("\t\tTotal time needed for computation: %f seconds\n", milliseconds/1000.f);
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-        printf("Error: %s\n", cudaGetErrorString(err));
-
     // print results to file
-    cudaFree (&gs.cs);
+    cudaFree (gs.cs);
 }
 
 int runcuda(GlobalState &gs)
@@ -1967,4 +1978,161 @@ int runcuda(GlobalState &gs)
     else
         gipuma<float>(gs);
     return 0;
+}
+
+void delTexture(int num, cudaTextureObject_t texs[], cudaArray *cuArray[]) {
+    for (int i = 0; i < num; i++) {
+        cudaFreeArray(cuArray[i]);
+        cudaDestroyTextureObject(texs[i]);
+    }
+}
+
+void addImageToTextureUint(std::vector<cv::Mat_<uint8_t>> &imgs,
+                           cudaTextureObject_t texs[], cudaArray *cuArray[]) {
+    for (size_t i = 0; i < imgs.size(); i++) {
+        int rows = imgs[i].rows;
+        int cols = imgs[i].cols;
+        // Create channel with uint8_t point type
+        cudaChannelFormatDesc channelDesc =
+        //cudaCreateChannelDesc (8,
+                               //0,
+                               //0,
+                               //0,
+                               //cudaChannelFormatKindUnsigned);
+        cudaCreateChannelDesc<char>();
+        // Allocate array with correct size and number of channels
+        checkCudaErrors(cudaMallocArray(&cuArray[i],
+                                        &channelDesc,
+                                        cols,
+                                        rows));
+
+        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
+                                              0,
+                                              0,
+                                              imgs[i].ptr<uint8_t>(),
+                                              imgs[i].step[0],
+                                              cols*sizeof(uint8_t),
+                                              rows,
+                                              cudaMemcpyHostToDevice));
+
+        // Specify texture
+        struct cudaResourceDesc resDesc;
+        memset(&resDesc, 0, sizeof(resDesc));
+        resDesc.resType         = cudaResourceTypeArray;
+        resDesc.res.array.array = cuArray[i];
+
+        // Specify texture object parameters
+        struct cudaTextureDesc texDesc;
+        memset(&texDesc, 0, sizeof(texDesc));
+        texDesc.addressMode[0]   = cudaAddressModeWrap;
+        texDesc.addressMode[1]   = cudaAddressModeWrap;
+        texDesc.filterMode       = cudaFilterModePoint;
+        texDesc.readMode         = cudaReadModeElementType;
+        texDesc.normalizedCoords = 0;
+
+        // Create texture object
+        //cudaTextureObject_t &texObj = texs[i];
+        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
+        //texs[i] = texObj;
+    }
+    return;
+}
+
+void addImageToTextureFloatColor(std::vector<cv::Mat> &imgs,
+                                 cudaTextureObject_t texs[],
+                                 cudaArray *cuArray[]) {
+    for (size_t i=0; i<imgs.size(); i++)
+    {
+        int rows = imgs[i].rows;
+        int cols = imgs[i].cols;
+        // Create channel with floating point type
+        cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<float4>();
+
+        // Allocate array with correct size and number of channels
+        //cudaArray *cuArray;
+        checkCudaErrors(cudaMallocArray(&cuArray[i],
+                                        &channelDesc,
+                                        cols,
+                                        rows));
+
+        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
+                                              0,
+                                              0,
+                                              imgs[i].ptr<float>(),
+                                              imgs[i].step[0],
+                                              cols*sizeof(float)*4,
+                                              rows,
+                                              cudaMemcpyHostToDevice));
+
+        // Specify texture
+        struct cudaResourceDesc resDesc;
+        memset(&resDesc, 0, sizeof(resDesc));
+        resDesc.resType         = cudaResourceTypeArray;
+        resDesc.res.array.array = cuArray[i];
+
+        // Specify texture object parameters
+        struct cudaTextureDesc texDesc;
+        memset(&texDesc, 0, sizeof(texDesc));
+        texDesc.addressMode[0]   = cudaAddressModeWrap;
+        texDesc.addressMode[1]   = cudaAddressModeWrap;
+        texDesc.filterMode       = cudaFilterModeLinear;
+        texDesc.readMode         = cudaReadModeElementType;
+        texDesc.normalizedCoords = 0;
+
+        // Create texture object
+        //cudaTextureObject_t &texObj = texs[i];
+        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
+    }
+    return;
+}
+
+void addImageToTextureFloatGray(std::vector<cv::Mat> &imgs,
+                                cudaTextureObject_t texs[],
+                                cudaArray *cuArray[]) {
+    for (size_t i = 0; i < imgs.size(); i++) {
+        int rows = imgs[i].rows;
+        int cols = imgs[i].cols;
+        // Create channel with floating point type
+        cudaChannelFormatDesc channelDesc =
+        cudaCreateChannelDesc (32,
+                               0,
+                               0,
+                               0,
+                               cudaChannelFormatKindFloat);
+        // Allocate array with correct size and number of channels
+        checkCudaErrors(cudaMallocArray(&cuArray[i],
+                                        &channelDesc,
+                                        cols,
+                                        rows));
+
+        checkCudaErrors (cudaMemcpy2DToArray (cuArray[i],
+                                              0,
+                                              0,
+                                              imgs[i].ptr<float>(),
+                                              imgs[i].step[0],
+                                              cols*sizeof(float),
+                                              rows,
+                                              cudaMemcpyHostToDevice));
+
+        // Specify texture
+        struct cudaResourceDesc resDesc;
+        memset(&resDesc, 0, sizeof(resDesc));
+        resDesc.resType         = cudaResourceTypeArray;
+        resDesc.res.array.array = cuArray[i];
+
+        // Specify texture object parameters
+        struct cudaTextureDesc texDesc;
+        memset(&texDesc, 0, sizeof(texDesc));
+        texDesc.addressMode[0]   = cudaAddressModeWrap;
+        texDesc.addressMode[1]   = cudaAddressModeWrap;
+        texDesc.filterMode       = cudaFilterModeLinear;
+        texDesc.readMode         = cudaReadModeElementType;
+        texDesc.normalizedCoords = 0;
+
+        // Create texture object
+        //cudaTextureObject_t &texObj = texs[i];
+        checkCudaErrors(cudaCreateTextureObject(&(texs[i]), &resDesc, &texDesc, NULL));
+        //texs[i] = texObj;
+    }
+    return;
 }

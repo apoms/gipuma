@@ -18,7 +18,6 @@
 #include <driver_functions.h>
 #include <cuda_runtime.h>
 #include <cuda_texture_types.h>
-#include <cuda_gl_interop.h>
 #include <curand_kernel.h>
 
 class GlobalState : public Managed {

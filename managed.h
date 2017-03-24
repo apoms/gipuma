@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cuda.h>
+#include <cuda_runtime.h>
 #include "helper_cuda.h"
 
 class Managed {
